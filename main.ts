@@ -2,12 +2,11 @@ import {
 	App,
 	Plugin,
 	TFile,
-	Vault,
 	moment,
 	MarkdownView,
 	PluginSettingTab,
 	Setting,
-    TAbstractFile,
+	TAbstractFile,
 } from "obsidian";
 
 declare module "obsidian" {
@@ -27,6 +26,7 @@ interface FrontMatterTimestampsSettings {
 	dateFormat: string;
 	allowNonEmptyNewFile: boolean;
 	delayAddingTimestamps: number;
+	delayModifiedUpdate: number;
 	excludedFolders: string[];
 	customCommand: string;
 	debug: boolean;
@@ -40,20 +40,20 @@ const DEFAULT_SETTINGS: FrontMatterTimestampsSettings = {
 	dateFormat: "YYYY-MM-DDTHH:mm:ssZ",
 	allowNonEmptyNewFile: false,
 	delayAddingTimestamps: 1000,
+	delayModifiedUpdate: 1000,
 	excludedFolders: [],
 	customCommand: "",
 	debug: false,
 };
 
-async function calculateChecksum(file: TFile, vault: Vault): Promise<string> {
-	const fileContent = await vault.read(file);
-	const buffer = new TextEncoder().encode(fileContent);
-	const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	const hashHex = hashArray
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
-	return hashHex;
+async function getFileContent(app: App, file: TFile): Promise<string> {
+	for (const leaf of app.workspace.getLeavesOfType("markdown")) {
+		const view = leaf.view;
+		if (view instanceof MarkdownView && view.file?.path === file.path) {
+			return view.getViewData();
+		}
+	}
+	return app.vault.read(file);
 }
 
 export default class FrontMatterTimestampsPlugin extends Plugin {
@@ -62,6 +62,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	private lastChecksum: string | null = null;
 
 	private pendingNewFiles = new Set<string>();
+	private pendingModifiedUpdates = new Map<string, number>();
 
 	private isPathExcluded(filePath: string): boolean {
 		// Immediate return if there are no excluded folders
@@ -91,9 +92,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			checkCallback: (checking: boolean) => {
 				const markdownView =
 					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
+				if (markdownView?.file) {
 					if (!checking) {
-						this.updateModifiedTime(markdownView.file);
+						void this.updateModifiedTime(markdownView.file, true);
 					}
 					return true;
 				}
@@ -149,6 +150,14 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					this.handleFileChange()
 				)
 			);
+		}
+	}
+
+	private cancelPendingModifiedUpdate(filePath: string) {
+		const timeoutId = this.pendingModifiedUpdates.get(filePath);
+		if (timeoutId !== undefined) {
+			window.clearTimeout(timeoutId);
+			this.pendingModifiedUpdates.delete(filePath);
 		}
 	}
 
@@ -236,14 +245,13 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 				!this.isPathExcluded(this.lastActiveFile.path)
 			) {
 				try {
-					// Check if the last active file still exists
 					const fileExists = await this.app.vault.adapter.exists(
 						this.lastActiveFile.path
 					);
 					if (fileExists) {
-						const currentChecksum = await calculateChecksum(
-							this.lastActiveFile,
-							this.app.vault
+						const currentChecksum = await getFileContent(
+							this.app,
+							this.lastActiveFile
 						);
 						if (this.lastChecksum !== currentChecksum) {
 							if (debug) {
@@ -251,7 +259,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 									`File ${this.lastActiveFile.path} changed while inactive, updating modified time.`
 								);
 							}
-							await this.updateModifiedTime(this.lastActiveFile);
+							void this.updateModifiedTime(this.lastActiveFile);
 						}
 					} else if (debug) {
 						console.log(
@@ -272,6 +280,8 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 
 		if (this.isPathExcluded(currentFile.path)) return;
 
+		this.cancelPendingModifiedUpdate(currentFile.path);
+
 		// Check if switching away from another file
 		if (
 			this.lastActiveFile &&
@@ -282,9 +292,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					this.lastActiveFile.path
 				);
 				if (lastFileExists) {
-					const lastFileChecksum = await calculateChecksum(
-						this.lastActiveFile,
-						this.app.vault
+					const lastFileChecksum = await getFileContent(
+						this.app,
+						this.lastActiveFile
 					);
 					if (this.lastChecksum !== lastFileChecksum) {
 						if (debug) {
@@ -292,7 +302,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 								`File ${this.lastActiveFile.path} changed before switching, updating modified time.`
 							);
 						}
-						await this.updateModifiedTime(this.lastActiveFile);
+						void this.updateModifiedTime(this.lastActiveFile);
 					}
 				}
 			} catch (error) {
@@ -309,16 +319,13 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			this.lastActiveFile.path !== currentFile.path
 		) {
 			this.lastActiveFile = currentFile;
-			this.lastChecksum = await calculateChecksum(
-				currentFile,
-				this.app.vault
-			);
+			this.lastChecksum = await getFileContent(this.app, currentFile);
 		}
 	}
 
-	async updateModifiedTime(file: TFile | null) {
+	async updateModifiedTime(file: TFile | null, immediate = false) {
 		const { debug } = this.settings;
-		if (!file || !file.path) return;
+		if (!file?.path) return;
 		if (this.isPathExcluded(file.path)) return;
 
 		if (file.extension !== "md") {
@@ -328,64 +335,104 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			return;
 		}
 
-		const currentTime = moment().format(this.settings.dateFormat);
+		const apply = async () => {
+			if (!immediate) {
+				const activeView =
+					this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView?.file?.path === file.path) {
+					if (debug) {
+						console.log(
+							`Skipping modified time update for ${file.path}; file is the active editor.`
+						);
+					}
+					return;
+				}
+			}
 
-		if (debug) {
-			console.log(
-				`Updating modified time for ${file.path} after a delay of ${this.settings.delayAddingTimestamps}ms.`
-			);
-		}
+			if (!(await this.app.vault.adapter.exists(file.path))) {
+				if (debug) {
+					console.log(
+						`File ${file.path} no longer exists, skipping modified time update.`
+					);
+				}
+				return;
+			}
 
-		await new Promise((resolve) =>
-			setTimeout(resolve, this.settings.delayAddingTimestamps)
-		);
+			for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+				const view = leaf.view;
+				if (
+					view instanceof MarkdownView &&
+					view.file?.path === file.path
+				) {
+					await view.save();
+					break;
+				}
+			}
 
-		// Check if file still exists after delay
-		if (!(await this.app.vault.adapter.exists(file.path))) {
-			if (debug) {
-				console.log(
-					`File ${file.path} no longer exists after delay, skipping modified time update.`
+			const currentTime = moment().format(this.settings.dateFormat);
+
+			try {
+				await this.app.fileManager.processFrontMatter(
+					file,
+					(frontmatter) => {
+						frontmatter[this.settings.modifiedPropertyName] =
+							currentTime;
+					}
+				);
+
+				if (debug) {
+					console.log(`File frontmatter updated for ${file.path}`);
+				}
+
+				if (this.settings.customCommand) {
+					this.app.commands.executeCommandById(
+						this.settings.customCommand
+					);
+				}
+			} catch (error) {
+				console.error(
+					`Error updating frontmatter for file ${file.path}`,
+					error
 				);
 			}
+		};
+
+		if (immediate) {
+			await apply();
 			return;
 		}
 
-		try {
-			await this.app.fileManager.processFrontMatter(
-				file,
-				(frontmatter) => {
-					frontmatter[this.settings.modifiedPropertyName] =
-						currentTime;
-				}
-			);
-
-			if (debug) {
-				console.log(`File frontmatter updated for ${file.path}`);
-			}
-
-			if (this.settings.customCommand) {
-				this.app.commands.executeCommandById(
-					this.settings.customCommand
-				);
-			}
-		} catch (error) {
-			console.error(
-				`Error updating frontmatter for file ${file.path}`,
-				error
+		this.cancelPendingModifiedUpdate(file.path);
+		const delay = Math.min(this.settings.delayModifiedUpdate, 250);
+		if (debug) {
+			console.log(
+				`Updating modified time for ${file.path} after a delay of ${delay}ms.`
 			);
 		}
+
+		const timeoutId = window.setTimeout(() => {
+			this.pendingModifiedUpdates.delete(file.path);
+			void apply();
+		}, delay);
+		this.pendingModifiedUpdates.set(file.path, timeoutId);
 	}
 
 	onunload() {
-		console.log("Unloading Front Matter Timestamps plugin");
+		for (const timeoutId of this.pendingModifiedUpdates.values()) {
+			window.clearTimeout(timeoutId);
+		}
+		this.pendingModifiedUpdates.clear();
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		const loaded = await this.loadData();
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// Migrate: older installs used delayAddingTimestamps for modified updates too
+		if (loaded?.delayModifiedUpdate === undefined) {
+			this.settings.delayModifiedUpdate =
+				loaded?.delayAddingTimestamps ??
+				DEFAULT_SETTINGS.delayModifiedUpdate;
+		}
 	}
 
 	async saveSettings() {
@@ -515,6 +562,25 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 						const delay = parseInt(value.trim(), 10);
 						if (!isNaN(delay)) {
 							this.plugin.settings.delayAddingTimestamps = delay;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Delay modified time update")
+			.setDesc(
+				"Maximum delay in milliseconds before a modified timestamp is written after you leave a note. When switching tabs, the update runs sooner (up to 250 ms) so background tabs do not block it. The update is always skipped while the note is your active editor."
+			)
+			.addText((text) =>
+				text
+					.setValue(
+						this.plugin.settings.delayModifiedUpdate.toString()
+					)
+					.onChange(async (value) => {
+						const delay = parseInt(value.trim(), 10);
+						if (!isNaN(delay)) {
+							this.plugin.settings.delayModifiedUpdate = delay;
 							await this.plugin.saveSettings();
 						}
 					})

@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-front-matter-timestamps",
-	"version": "1.5.3",
+	"version": "1.5.4",
 	"description": "Automatically manages and updates 'created' and 'modified' timestamps in the frontmatter of your notes",
 	"main": "main.js",
 	"scripts": {

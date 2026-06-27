@@ -1,0 +1,11 @@
+import { App, MarkdownView, TFile } from "obsidian";
+
+export async function getFileContent(app: App, file: TFile): Promise<string> {
+	for (const leaf of app.workspace.getLeavesOfType("markdown")) {
+		const view = leaf.view;
+		if (view instanceof MarkdownView && view.file?.path === file.path) {
+			return view.getViewData();
+		}
+	}
+	return app.vault.read(file);
+}

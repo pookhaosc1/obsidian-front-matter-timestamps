@@ -71,11 +71,16 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 
 				const file = f as TFile;
 
-				if (Date.now() - file.stat.ctime > 30000) {
+				// ctime is 0 when the filesystem cannot report a creation time
+				// (e.g. NTFS mounts on Linux); treat it as unknown
+				if (
+					file.stat.ctime > 0 &&
+					Date.now() - file.stat.ctime > 30000
+				) {
 					// If the note was actually created a long time ago, skip
 					if (this.settings.debug) {
 						console.log(
-							`Skipping timestamps on ${file.path}; ctime is older than 60s.`,
+							`Skipping timestamps on ${file.path}; ctime is older than 30s.`,
 						);
 					}
 					return;

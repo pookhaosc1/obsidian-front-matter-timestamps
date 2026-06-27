@@ -4,7 +4,7 @@
 	"version": "1.5.3",
 	"minAppVersion": "0.15.0",
 	"description": "Automatically manages and updates 'created' and 'modified' timestamps in the frontmatter of your notes",
-	"author": "LighthouseDino",
-	"authorUrl": "https://github.com/lighthousedino",
+	"author": "Pookhao Chinpongsuwan",
+	"authorUrl": "https://github.com/pookhaosc1",
 	"isDesktopOnly": false
 }

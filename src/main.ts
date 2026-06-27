@@ -1,8 +1,5 @@
 import { Plugin, TFile, moment, MarkdownView, TAbstractFile } from "obsidian";
-import {
-	DEFAULT_SETTINGS,
-	FrontMatterTimestampsSettings,
-} from "./settings";
+import { DEFAULT_SETTINGS, FrontMatterTimestampsSettings } from "./settings";
 import { getFileContent } from "./utils";
 import { FrontMatterTimestampsSettingTab } from "./settings-tab";
 
@@ -25,8 +22,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		const fullPathChecks = pathSegments.map((_, index) =>
 			pathSegments.slice(0, index + 1).join("/"),
 		);
+		// Normalise backslashes for Windows?
 		return this.settings.excludedFolders.some((excludedPath) =>
-			fullPathChecks.includes(excludedPath),
+			fullPathChecks.includes(excludedPath.replace(/\\/g, "/")),
 		);
 	}
 

@@ -73,10 +73,10 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		const pathSegments = filePath.split("/");
 		// Generate all possible subpaths to compare against excluded folders
 		const fullPathChecks = pathSegments.map((_, index) =>
-			pathSegments.slice(0, index + 1).join("/")
+			pathSegments.slice(0, index + 1).join("/"),
 		);
 		return this.settings.excludedFolders.some((excludedPath) =>
-			fullPathChecks.includes(excludedPath)
+			fullPathChecks.includes(excludedPath),
 		);
 	}
 
@@ -118,14 +118,14 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 						// TFolder or other types - ignore
 						return;
 				}
-				
+
 				const file = f as TFile;
 
 				if (Date.now() - file.stat.ctime > 30000) {
 					// If the note was actually created a long time ago, skip
 					if (this.settings.debug) {
 						console.log(
-							`Skipping timestamps on ${file.path}; ctime is older than 60s.`
+							`Skipping timestamps on ${file.path}; ctime is older than 60s.`,
 						);
 					}
 					return;
@@ -140,15 +140,15 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					this.pendingNewFiles.add(file.path);
 					this.handleNewFileTimestamps(file);
 				}
-			})
+			}),
 		);
 
 		// Listen for active leaf changes if autoUpdate is enabled
 		if (this.settings.autoUpdate) {
 			this.registerEvent(
 				this.app.workspace.on("active-leaf-change", () =>
-					this.handleFileChange()
-				)
+					this.handleFileChange(),
+				),
 			);
 		}
 	}
@@ -170,7 +170,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			if (fileContent.trim()) {
 				if (debug) {
 					console.log(
-						`File ${file.path} is not empty, skipping initial timestamps.`
+						`File ${file.path} is not empty, skipping initial timestamps.`,
 					);
 				}
 				this.pendingNewFiles.delete(file.path);
@@ -181,18 +181,18 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		// Wait the configured delay to allow other plugins (e.g. Templater) to do their work
 		if (debug) {
 			console.log(
-				`Waiting ${this.settings.delayAddingTimestamps}ms before adding timestamps to ${file.path}.`
+				`Waiting ${this.settings.delayAddingTimestamps}ms before adding timestamps to ${file.path}.`,
 			);
 		}
 		await new Promise((resolve) =>
-			setTimeout(resolve, this.settings.delayAddingTimestamps)
+			setTimeout(resolve, this.settings.delayAddingTimestamps),
 		);
 
 		// Check if file still exists after delay
 		if (!(await this.app.vault.adapter.exists(file.path))) {
 			if (debug) {
 				console.log(
-					`File ${file.path} no longer exists after delay, skipping timestamp addition.`
+					`File ${file.path} no longer exists after delay, skipping timestamp addition.`,
 				);
 			}
 			this.pendingNewFiles.delete(file.path);
@@ -213,7 +213,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 						frontmatter[this.settings.modifiedPropertyName] =
 							currentTime;
 					}
-				}
+				},
 			);
 			if (debug) {
 				console.log(`Timestamps added to new file ${file.path}`);
@@ -221,7 +221,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		} catch (error) {
 			console.error(
 				`Error adding timestamps to new file ${file.path}`,
-				error
+				error,
 			);
 		} finally {
 			this.pendingNewFiles.delete(file.path);
@@ -246,30 +246,30 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			) {
 				try {
 					const fileExists = await this.app.vault.adapter.exists(
-						this.lastActiveFile.path
+						this.lastActiveFile.path,
 					);
 					if (fileExists) {
 						const currentChecksum = await getFileContent(
 							this.app,
-							this.lastActiveFile
+							this.lastActiveFile,
 						);
 						if (this.lastChecksum !== currentChecksum) {
 							if (debug) {
 								console.log(
-									`File ${this.lastActiveFile.path} changed while inactive, updating modified time.`
+									`File ${this.lastActiveFile.path} changed while inactive, updating modified time.`,
 								);
 							}
 							void this.updateModifiedTime(this.lastActiveFile);
 						}
 					} else if (debug) {
 						console.log(
-							`Last active file ${this.lastActiveFile.path} no longer exists.`
+							`Last active file ${this.lastActiveFile.path} no longer exists.`,
 						);
 					}
 				} catch (error) {
 					console.error(
 						`Error checking checksum for ${this.lastActiveFile.path}:`,
-						error
+						error,
 					);
 				}
 			}
@@ -289,17 +289,17 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		) {
 			try {
 				const lastFileExists = await this.app.vault.adapter.exists(
-					this.lastActiveFile.path
+					this.lastActiveFile.path,
 				);
 				if (lastFileExists) {
 					const lastFileChecksum = await getFileContent(
 						this.app,
-						this.lastActiveFile
+						this.lastActiveFile,
 					);
 					if (this.lastChecksum !== lastFileChecksum) {
 						if (debug) {
 							console.log(
-								`File ${this.lastActiveFile.path} changed before switching, updating modified time.`
+								`File ${this.lastActiveFile.path} changed before switching, updating modified time.`,
 							);
 						}
 						void this.updateModifiedTime(this.lastActiveFile);
@@ -308,7 +308,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			} catch (error) {
 				console.error(
 					`Error checking checksum for ${this.lastActiveFile.path}:`,
-					error
+					error,
 				);
 			}
 		}
@@ -342,7 +342,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 				if (activeView?.file?.path === file.path) {
 					if (debug) {
 						console.log(
-							`Skipping modified time update for ${file.path}; file is the active editor.`
+							`Skipping modified time update for ${file.path}; file is the active editor.`,
 						);
 					}
 					return;
@@ -352,7 +352,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			if (!(await this.app.vault.adapter.exists(file.path))) {
 				if (debug) {
 					console.log(
-						`File ${file.path} no longer exists, skipping modified time update.`
+						`File ${file.path} no longer exists, skipping modified time update.`,
 					);
 				}
 				return;
@@ -377,7 +377,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					(frontmatter) => {
 						frontmatter[this.settings.modifiedPropertyName] =
 							currentTime;
-					}
+					},
 				);
 
 				if (debug) {
@@ -386,13 +386,13 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 
 				if (this.settings.customCommand) {
 					this.app.commands.executeCommandById(
-						this.settings.customCommand
+						this.settings.customCommand,
 					);
 				}
 			} catch (error) {
 				console.error(
 					`Error updating frontmatter for file ${file.path}`,
-					error
+					error,
 				);
 			}
 		};
@@ -406,7 +406,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		const delay = Math.min(this.settings.delayModifiedUpdate, 250);
 		if (debug) {
 			console.log(
-				`Updating modified time for ${file.path} after a delay of ${delay}ms.`
+				`Updating modified time for ${file.path} after a delay of ${delay}ms.`,
 			);
 		}
 
@@ -461,13 +461,13 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.autoUpdate = value;
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 
 		new Setting(containerEl)
 			.setName("Automatic timestamps")
 			.setDesc(
-				"Automatically add created and modified timestamps to new notes"
+				"Automatically add created and modified timestamps to new notes",
 			)
 			.addToggle((toggle) =>
 				toggle
@@ -475,7 +475,7 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.autoAddTimestamps = value;
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 
 		new Setting(containerEl)
@@ -487,7 +487,7 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.createdPropertyName = value.trim();
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 
 		new Setting(containerEl)
@@ -500,13 +500,13 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 						this.plugin.settings.modifiedPropertyName =
 							value.trim();
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 
 		new Setting(containerEl)
 			.setName("Date and time format")
 			.setDesc(
-				"Specify the desired date and time format using Moment.js tokens. Example: YYYY-MM-DDTHH:mm"
+				"Specify the desired date and time format using Moment.js tokens. Example: YYYY-MM-DDTHH:mm",
 			)
 			.addText((text) => {
 				text.setPlaceholder("YYYY-MM-DDTHH:mm:ssZ")
@@ -522,7 +522,7 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 					{
 						text: "Reset",
 						cls: "mod-ghost",
-					}
+					},
 				);
 
 				resetButton.addEventListener("click", async () => {
@@ -537,7 +537,7 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Allow non-empty file to be treated as new note")
 			.setDesc(
-				"Newly created file does not have to be empty to add timestamps. Enable if using plugins that automatically add content to new notes (Templater, Daily Notes, etc.)."
+				"Newly created file does not have to be empty to add timestamps. Enable if using plugins that automatically add content to new notes (Templater, Daily Notes, etc.).",
 			)
 			.addToggle((toggle) =>
 				toggle
@@ -545,18 +545,18 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.allowNonEmptyNewFile = value;
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 
 		new Setting(containerEl)
 			.setName("Delay adding timestamps to new notes")
 			.setDesc(
-				"Delay in milliseconds before adding timestamps to new notes to avoid conflicts with other plugins that also add content to new notes. The default value of 1000 milliseconds should be sufficient for most cases, but you can adjust it as needed. Set to 0 to disable the delay if you are not experiencing any issues or not using such plugins."
+				"Delay in milliseconds before adding timestamps to new notes to avoid conflicts with other plugins that also add content to new notes. The default value of 1000 milliseconds should be sufficient for most cases, but you can adjust it as needed. Set to 0 to disable the delay if you are not experiencing any issues or not using such plugins.",
 			)
 			.addText((text) =>
 				text
 					.setValue(
-						this.plugin.settings.delayAddingTimestamps.toString()
+						this.plugin.settings.delayAddingTimestamps.toString(),
 					)
 					.onChange(async (value) => {
 						const delay = parseInt(value.trim(), 10);
@@ -564,18 +564,18 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 							this.plugin.settings.delayAddingTimestamps = delay;
 							await this.plugin.saveSettings();
 						}
-					})
+					}),
 			);
 
 		new Setting(containerEl)
 			.setName("Delay modified time update")
 			.setDesc(
-				"Maximum delay in milliseconds before a modified timestamp is written after you leave a note. When switching tabs, the update runs sooner (up to 250 ms) so background tabs do not block it. The update is always skipped while the note is your active editor."
+				"Maximum delay in milliseconds before a modified timestamp is written after you leave a note. When switching tabs, the update runs sooner (up to 250 ms) so background tabs do not block it. The update is always skipped while the note is your active editor.",
 			)
 			.addText((text) =>
 				text
 					.setValue(
-						this.plugin.settings.delayModifiedUpdate.toString()
+						this.plugin.settings.delayModifiedUpdate.toString(),
 					)
 					.onChange(async (value) => {
 						const delay = parseInt(value.trim(), 10);
@@ -583,13 +583,13 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 							this.plugin.settings.delayModifiedUpdate = delay;
 							await this.plugin.saveSettings();
 						}
-					})
+					}),
 			);
 
 		const excludedFoldersSetting = new Setting(containerEl)
 			.setName("Excluded folders")
 			.setDesc(
-				"Manage folders that are excluded from timestamp updates. You can add subfolder paths as needed. For example, 'folder/subfolder' will exclude 'subfolder' but not 'folder'."
+				"Manage folders that are excluded from timestamp updates. You can add subfolder paths as needed. For example, 'folder/subfolder' will exclude 'subfolder' but not 'folder'.",
 			);
 
 		const listContainer = excludedFoldersSetting.settingEl.createDiv();
@@ -660,7 +660,7 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 		const commandSetting = new Setting(containerEl)
 			.setName("Execute command after update")
 			.setDesc(
-				"Select a command to run after the modified time is successfully updated"
+				"Select a command to run after the modified time is successfully updated",
 			);
 
 		const select = commandSetting.controlEl.createEl("select");
@@ -695,7 +695,7 @@ class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.debug = value;
 						await this.plugin.saveSettings();
-					})
+					}),
 			);
 	}
 }

@@ -183,16 +183,34 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	}
 
 	handleFileChange() {
-		this.fileChangeQueue = this.fileChangeQueue
-			.catch(() => {})
-			.then(() => this.processFileChange());
-	}
-
-	private async processFileChange() {
-		const { debug } = this.settings;
 		const activeFile = this.app.workspace.getActiveFile();
 		const currentFile =
 			activeFile && activeFile.extension === "md" ? activeFile : null;
+		if (currentFile && this.isPathExcluded(currentFile.path)) return;
+
+		if (currentFile) this.cancelPendingModifiedUpdate(currentFile.path);
+
+		const checksum = currentFile
+			? getFileContent(this.app, currentFile).catch((error) => {
+					console.error(
+						`Error reading baseline for ${currentFile.path}:`,
+						error,
+					);
+					return null;
+				})
+			: Promise.resolve(null);
+		this.fileChangeQueue = this.fileChangeQueue
+			.then(() => this.processFileChange(currentFile, checksum))
+			.catch((error) => {
+				console.error("Error processing file change:", error);
+			});
+	}
+
+	private async processFileChange(
+		currentFile: TFile | null,
+		checksum: Promise<string | null>,
+	) {
+		const { debug } = this.settings;
 
 		if (debug) {
 			console.log("handleFileChange called");
@@ -213,7 +231,10 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 							this.app,
 							this.lastActiveFile,
 						);
-						if (this.lastChecksum !== null && this.lastChecksum !== currentChecksum) {
+						if (
+							this.lastChecksum !== null &&
+							this.lastChecksum !== currentChecksum
+						) {
 							if (debug) {
 								console.log(
 									`File ${this.lastActiveFile.path} changed while inactive, updating modified time.`,
@@ -238,10 +259,6 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isPathExcluded(currentFile.path)) return;
-
-		this.cancelPendingModifiedUpdate(currentFile.path);
-
 		// Check if switching away from another file
 		if (
 			this.lastActiveFile &&
@@ -256,7 +273,10 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 						this.app,
 						this.lastActiveFile,
 					);
-					if (this.lastChecksum !== null && this.lastChecksum !== lastFileChecksum) {
+					if (
+						this.lastChecksum !== null &&
+						this.lastChecksum !== lastFileChecksum
+					) {
 						if (debug) {
 							console.log(
 								`File ${this.lastActiveFile.path} changed before switching, updating modified time.`,
@@ -278,9 +298,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			!this.lastActiveFile ||
 			this.lastActiveFile.path !== currentFile.path
 		) {
-			const checksum = await getFileContent(this.app, currentFile);
+			const baseline = await checksum;
 			this.lastActiveFile = currentFile;
-			this.lastChecksum = checksum;
+			this.lastChecksum = baseline;
 		}
 	}
 

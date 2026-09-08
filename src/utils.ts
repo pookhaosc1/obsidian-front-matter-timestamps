@@ -15,8 +15,10 @@ export async function getFileContent(app: App, file: TFile): Promise<string> {
 	for (const leaf of app.workspace.getLeavesOfType("markdown")) {
 		const view = leaf.view;
 		if (view instanceof MarkdownView && view.file?.path === file.path) {
-			return normalizeForComparison(view.getViewData());
+			await view.save();
+			break;
 		}
 	}
-	return normalizeForComparison(await app.vault.read(file));
+	const content = await app.vault.read(file);
+	return normalizeForComparison(content);
 }

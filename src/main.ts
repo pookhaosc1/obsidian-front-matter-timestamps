@@ -10,6 +10,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 
 	private pendingNewFiles = new Set<string>();
 	private pendingModifiedUpdates = new Map<string, number>();
+	private fileChangeQueue: Promise<void> = Promise.resolve();
 
 	private isPathExcluded(filePath: string): boolean {
 		// Immediate return if there are no excluded folders
@@ -181,11 +182,17 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		}
 	}
 
-	async handleFileChange() {
+	handleFileChange() {
+		this.fileChangeQueue = this.fileChangeQueue
+			.catch(() => {})
+			.then(() => this.processFileChange());
+	}
+
+	private async processFileChange() {
 		const { debug } = this.settings;
-		const markdownView =
-			this.app.workspace.getActiveViewOfType(MarkdownView);
-		const currentFile = markdownView ? markdownView.file : null;
+		const activeFile = this.app.workspace.getActiveFile();
+		const currentFile =
+			activeFile && activeFile.extension === "md" ? activeFile : null;
 
 		if (debug) {
 			console.log("handleFileChange called");
@@ -206,7 +213,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 							this.app,
 							this.lastActiveFile,
 						);
-						if (this.lastChecksum !== currentChecksum) {
+						if (this.lastChecksum !== null && this.lastChecksum !== currentChecksum) {
 							if (debug) {
 								console.log(
 									`File ${this.lastActiveFile.path} changed while inactive, updating modified time.`,
@@ -249,7 +256,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 						this.app,
 						this.lastActiveFile,
 					);
-					if (this.lastChecksum !== lastFileChecksum) {
+					if (this.lastChecksum !== null && this.lastChecksum !== lastFileChecksum) {
 						if (debug) {
 							console.log(
 								`File ${this.lastActiveFile.path} changed before switching, updating modified time.`,
@@ -271,8 +278,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			!this.lastActiveFile ||
 			this.lastActiveFile.path !== currentFile.path
 		) {
+			const checksum = await getFileContent(this.app, currentFile);
 			this.lastActiveFile = currentFile;
-			this.lastChecksum = await getFileContent(this.app, currentFile);
+			this.lastChecksum = checksum;
 		}
 	}
 
@@ -290,12 +298,11 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 
 		const apply = async () => {
 			if (!immediate) {
-				const activeView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (activeView?.file?.path === file.path) {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (activeFile?.path === file.path) {
 					if (debug) {
 						console.log(
-							`Skipping modified time update for ${file.path}; file is the active editor.`,
+							`Skipping modified time update for ${file.path}; file is currently active.`,
 						);
 					}
 					return;

@@ -1,6 +1,6 @@
-import { Plugin, TFile, moment, MarkdownView, TAbstractFile } from "obsidian";
+import { Editor, Plugin, TFile, moment, MarkdownView, TAbstractFile } from "obsidian";
 import { DEFAULT_SETTINGS, FrontMatterTimestampsSettings } from "./settings";
-import { getFileContent } from "./utils";
+import { getComparableContent, getFileContent } from "./utils";
 import { FrontMatterTimestampsSettingTab } from "./settings-tab";
 
 export default class FrontMatterTimestampsPlugin extends Plugin {
@@ -11,6 +11,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	private pendingNewFiles = new Set<string>();
 	private pendingModifiedUpdates = new Map<string, number>();
 	private fileChangeQueue: Promise<void> = Promise.resolve();
+	private editorContents = new WeakMap<Editor, string>();
+	private pendingEditorUpdates = new Map<TFile, number>();
+	private lastUpdatedContents = new WeakMap<TFile, string>();
 
 	private isPathExcluded(filePath: string): boolean {
 		// Immediate return if there are no excluded folders
@@ -97,14 +100,45 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			}),
 		);
 
-		// Listen for active leaf changes if autoUpdate is enabled
-		if (this.settings.autoUpdate) {
-			this.registerEvent(
-				this.app.workspace.on("active-leaf-change", () =>
-					this.handleFileChange(),
-				),
-			);
-		}
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () =>
+				this.handleFileChange(),
+			),
+		);
+		this.registerEvent(
+			this.app.workspace.on("editor-change", (editor, info) => {
+				const file = info.file;
+				if (!file || file.extension !== "md") return;
+				const content = getComparableContent(
+					editor.getValue(),
+					this.settings.modifiedPropertyName,
+				);
+				const previous = this.editorContents.get(editor);
+				this.editorContents.set(editor, content);
+				// Timestamp writes also emit editor-change; compare without our field.
+				if (
+					previous === content ||
+					!this.settings.autoUpdate ||
+					this.isPathExcluded(file.path)
+				) return;
+				if (this.pendingNewFiles.has(file.path)) return;
+
+				const pending = this.pendingEditorUpdates.get(file);
+				if (pending !== undefined) window.clearTimeout(pending);
+				this.pendingEditorUpdates.set(
+					file,
+					window.setTimeout(() => {
+						this.pendingEditorUpdates.delete(file);
+						if (this.settings.autoUpdate) {
+							void this.updateModifiedTime(file, true, true).catch(
+								console.error,
+							);
+						}
+					}, Math.max(0, this.settings.delayModifiedUpdate)),
+				);
+			}),
+		);
+		this.app.workspace.onLayoutReady(() => this.handleFileChange());
 	}
 
 	private cancelPendingModifiedUpdate(filePath: string) {
@@ -183,6 +217,16 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	}
 
 	handleFileChange() {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (view instanceof MarkdownView) {
+				this.editorContents.set(
+					view.editor,
+					getComparableContent(view.editor.getValue(), this.settings.modifiedPropertyName),
+				);
+			}
+		}
+		if (!this.settings.autoUpdate) return;
 		const activeFile = this.app.workspace.getActiveFile();
 		const currentFile =
 			activeFile && activeFile.extension === "md" ? activeFile : null;
@@ -191,7 +235,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		if (currentFile) this.cancelPendingModifiedUpdate(currentFile.path);
 
 		const checksum = currentFile
-			? getFileContent(this.app, currentFile).catch((error) => {
+			? getFileContent(this.app, currentFile, this.settings.modifiedPropertyName).catch((error) => {
 					console.error(
 						`Error reading baseline for ${currentFile.path}:`,
 						error,
@@ -230,6 +274,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 						const currentChecksum = await getFileContent(
 							this.app,
 							this.lastActiveFile,
+							this.settings.modifiedPropertyName,
 						);
 						if (
 							this.lastChecksum !== null &&
@@ -272,6 +317,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					const lastFileChecksum = await getFileContent(
 						this.app,
 						this.lastActiveFile,
+						this.settings.modifiedPropertyName,
 					);
 					if (
 						this.lastChecksum !== null &&
@@ -304,7 +350,11 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		}
 	}
 
-	async updateModifiedTime(file: TFile | null, immediate = false) {
+	async updateModifiedTime(
+		file: TFile | null,
+		immediate = false,
+		editorUpdate = false,
+	) {
 		const { debug } = this.settings;
 		if (!file?.path) return;
 		if (this.isPathExcluded(file.path)) return;
@@ -317,6 +367,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		}
 
 		const apply = async () => {
+			if (!immediate && !this.settings.autoUpdate) return;
 			if (!immediate) {
 				const activeFile = this.app.workspace.getActiveFile();
 				if (activeFile?.path === file.path) {
@@ -338,16 +389,14 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 				return;
 			}
 
-			for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-				const view = leaf.view;
-				if (
-					view instanceof MarkdownView &&
-					view.file?.path === file.path
-				) {
-					await view.save();
-					break;
-				}
-			}
+			const content = await getFileContent(
+				this.app, file, this.settings.modifiedPropertyName,
+			);
+			// The editor timer may outlive a successful update on switching notes.
+			if (
+				(!immediate || editorUpdate) &&
+				this.lastUpdatedContents.get(file) === content
+			) return;
 
 			const currentTime = moment().format(this.settings.dateFormat);
 
@@ -359,6 +408,10 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 							currentTime;
 					},
 				);
+				this.lastUpdatedContents.set(file, content);
+				if (this.lastActiveFile?.path === file.path) {
+					this.lastChecksum = content;
+				}
 
 				if (debug) {
 					console.log(`File frontmatter updated for ${file.path}`);
@@ -378,6 +431,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		};
 
 		if (immediate) {
+			this.cancelPendingModifiedUpdate(file.path);
 			await apply();
 			return;
 		}
@@ -398,6 +452,10 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	}
 
 	onunload() {
+		for (const timeoutId of this.pendingEditorUpdates.values()) {
+			window.clearTimeout(timeoutId);
+		}
+		this.pendingEditorUpdates.clear();
 		for (const timeoutId of this.pendingModifiedUpdates.values()) {
 			window.clearTimeout(timeoutId);
 		}

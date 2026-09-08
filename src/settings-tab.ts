@@ -16,7 +16,7 @@ export class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Automatic update")
-			.setDesc("Automatically update modified time on file change")
+			.setDesc("Automatically update modified time after editing")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.autoUpdate)
@@ -132,7 +132,7 @@ export class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Delay modified time update")
 			.setDesc(
-				"Maximum delay in milliseconds before a modified timestamp is written after you leave a note. When switching tabs, the update runs sooner (up to 250 ms) so background tabs do not block it. The update is always skipped while the note is your active editor.",
+				"Idle time in milliseconds after an edit before updating the modified timestamp.",
 			)
 			.addText((text) =>
 				text

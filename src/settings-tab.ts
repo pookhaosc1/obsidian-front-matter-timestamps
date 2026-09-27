@@ -235,7 +235,10 @@ export class FrontMatterTimestampsSettingTab extends PluginSettingTab {
 
 		this.app.commands
 			.listCommands()
-			.filter((command) => command.id !== this.plugin.updateModifiedTimeCommandId)
+			.filter(
+				(command) =>
+					command.id !== this.plugin.updateModifiedTimeCommandId,
+			)
 			.forEach((command: { name: any; id: string }) => {
 				let option = select.createEl("option", { text: command.name });
 				option.value = command.id;

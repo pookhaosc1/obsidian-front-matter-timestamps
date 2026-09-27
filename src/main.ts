@@ -32,7 +32,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		return `${this.manifest.id}:update-modified-time`;
 	}
 
-	private async executeAfterUpdateCommand() {
+	private async executeAfterUpdateCommand(file: TFile) {
 		const command = this.settings.customCommand;
 		if (
 			!command ||
@@ -40,6 +40,12 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			this.runningCustomCommand
 		)
 			return;
+
+		if (
+			this.app.workspace.getActiveViewOfType(MarkdownView)?.file !== file
+		) {
+			return;
+		}
 
 		this.runningCustomCommand = true;
 		try {
@@ -464,7 +470,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 				}
 
 				if (runCustomCommand) {
-					await this.executeAfterUpdateCommand();
+					await this.executeAfterUpdateCommand(file);
 				}
 			} catch (error) {
 				console.error(

@@ -1,11 +1,28 @@
 import {
 	App,
+	Editor,
+	editorInfoField,
 	getFrontMatterInfo,
 	MarkdownView,
 	parseYaml,
 	stringifyYaml,
 	TFile,
 } from "obsidian";
+import { EditorState, Transaction } from "@codemirror/state";
+
+const timestampEditors = new WeakSet<Editor>();
+
+export const timestampHistoryExtension = EditorState.transactionExtender.of(
+	(transaction) => {
+		const editor = transaction.startState.field(
+			editorInfoField,
+			false,
+		)?.editor;
+		return editor && timestampEditors.has(editor)
+			? { annotations: Transaction.addToHistory.of(false) }
+			: null;
+	},
+);
 
 export async function processFrontMatter(
 	app: App,
@@ -29,11 +46,21 @@ export async function processFrontMatter(
 				throw new Error("Frontmatter must be a YAML mapping.");
 			}
 			update(frontmatter);
-			editor.replaceRange(
-				`---\n${stringifyYaml(frontmatter)}---\n`,
-				{ line: 0, ch: 0 },
-				editor.offsetToPos(info.exists ? info.contentStart : 0),
-			);
+			const replacement = `---\n${stringifyYaml(frontmatter)}---\n`;
+			const end = info.exists ? info.contentStart : 0;
+			if (content.slice(0, end) === replacement) return;
+
+			// Keep metadata out of undo history
+			timestampEditors.add(editor);
+			try {
+				editor.replaceRange(
+					replacement,
+					{ line: 0, ch: 0 },
+					editor.offsetToPos(end),
+				);
+			} finally {
+				timestampEditors.delete(editor);
+			}
 			await view.save();
 			return;
 		}

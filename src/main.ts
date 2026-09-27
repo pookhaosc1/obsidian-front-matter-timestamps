@@ -27,6 +27,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	private pendingEditorUpdates = new Map<TFile, number>();
 	private lastUpdatedContents = new WeakMap<TFile, string>();
 	private runningCustomCommand = false;
+	private unloaded = false;
 
 	get updateModifiedTimeCommandId(): string {
 		return `${this.manifest.id}:update-modified-time`;
@@ -73,6 +74,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	}
 
 	async onload() {
+		this.unloaded = false;
 		await this.loadSettings();
 		this.registerEditorExtension(timestampHistoryExtension);
 
@@ -95,6 +97,57 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			},
 		});
 
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () =>
+				this.handleFileChange(),
+			),
+		);
+		this.registerEvent(
+			this.app.workspace.on("editor-change", (editor, info) => {
+				const file = info.file;
+				if (!file || file.extension !== "md") return;
+				const content = getComparableContent(
+					editor.getValue(),
+					this.settings.modifiedPropertyName,
+				);
+				const previous = this.editorContents.get(editor);
+				this.editorContents.set(editor, content);
+				if (
+					previous === content ||
+					!this.settings.autoUpdate ||
+					this.isPathExcluded(file.path)
+				)
+					return;
+				if (this.pendingNewFiles.has(file.path)) return;
+
+				const pending = this.pendingEditorUpdates.get(file);
+				if (pending !== undefined) window.clearTimeout(pending);
+				this.pendingEditorUpdates.set(
+					file,
+					window.setTimeout(
+						() => {
+							this.pendingEditorUpdates.delete(file);
+							if (this.settings.autoUpdate) {
+								void this.updateModifiedTime(
+									file,
+									true,
+									true,
+								).catch(console.error);
+							}
+						},
+						Math.max(0, this.settings.delayModifiedUpdate),
+					),
+				);
+			}),
+		);
+		this.app.workspace.onLayoutReady(() => {
+			if (this.unloaded) return;
+			this.registerFileCreationHandler();
+			this.handleFileChange();
+		});
+	}
+
+	private registerFileCreationHandler() {
 		// Listen for new file creations
 		this.registerEvent(
 			this.app.vault.on("create", (f: TAbstractFile) => {
@@ -140,52 +193,6 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 				}
 			}),
 		);
-
-		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", () =>
-				this.handleFileChange(),
-			),
-		);
-		this.registerEvent(
-			this.app.workspace.on("editor-change", (editor, info) => {
-				const file = info.file;
-				if (!file || file.extension !== "md") return;
-				const content = getComparableContent(
-					editor.getValue(),
-					this.settings.modifiedPropertyName,
-				);
-				const previous = this.editorContents.get(editor);
-				this.editorContents.set(editor, content);
-				// Timestamp writes also emit editor-change; compare without our field.
-				if (
-					previous === content ||
-					!this.settings.autoUpdate ||
-					this.isPathExcluded(file.path)
-				)
-					return;
-				if (this.pendingNewFiles.has(file.path)) return;
-
-				const pending = this.pendingEditorUpdates.get(file);
-				if (pending !== undefined) window.clearTimeout(pending);
-				this.pendingEditorUpdates.set(
-					file,
-					window.setTimeout(
-						() => {
-							this.pendingEditorUpdates.delete(file);
-							if (this.settings.autoUpdate) {
-								void this.updateModifiedTime(
-									file,
-									true,
-									true,
-								).catch(console.error);
-							}
-						},
-						Math.max(0, this.settings.delayModifiedUpdate),
-					),
-				);
-			}),
-		);
-		this.app.workspace.onLayoutReady(() => this.handleFileChange());
 	}
 
 	private cancelPendingModifiedUpdate(filePath: string) {
@@ -502,6 +509,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	}
 
 	onunload() {
+		this.unloaded = true;
 		for (const timeoutId of this.pendingEditorUpdates.values()) {
 			window.clearTimeout(timeoutId);
 		}

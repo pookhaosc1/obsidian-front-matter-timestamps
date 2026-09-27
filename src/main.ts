@@ -1,6 +1,18 @@
-import { Editor, Plugin, TFile, moment, MarkdownView, TAbstractFile } from "obsidian";
+import {
+	Editor,
+	Plugin,
+	TFile,
+	moment,
+	MarkdownView,
+	TAbstractFile,
+} from "obsidian";
 import { DEFAULT_SETTINGS, FrontMatterTimestampsSettings } from "./settings";
-import { getComparableContent, getFileContent, processFrontMatter, timestampHistoryExtension } from "./utils";
+import {
+	getComparableContent,
+	getFileContent,
+	processFrontMatter,
+	timestampHistoryExtension,
+} from "./utils";
 import { FrontMatterTimestampsSettingTab } from "./settings-tab";
 
 export default class FrontMatterTimestampsPlugin extends Plugin {
@@ -14,6 +26,28 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	private editorContents = new WeakMap<Editor, string>();
 	private pendingEditorUpdates = new Map<TFile, number>();
 	private lastUpdatedContents = new WeakMap<TFile, string>();
+	private runningCustomCommand = false;
+
+	get updateModifiedTimeCommandId(): string {
+		return `${this.manifest.id}:update-modified-time`;
+	}
+
+	private async executeAfterUpdateCommand() {
+		const command = this.settings.customCommand;
+		if (
+			!command ||
+			command === this.updateModifiedTimeCommandId ||
+			this.runningCustomCommand
+		)
+			return;
+
+		this.runningCustomCommand = true;
+		try {
+			await this.app.commands.executeCommandById(command);
+		} finally {
+			this.runningCustomCommand = false;
+		}
+	}
 
 	private isPathExcluded(filePath: string): boolean {
 		// Immediate return if there are no excluded folders
@@ -121,21 +155,27 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					previous === content ||
 					!this.settings.autoUpdate ||
 					this.isPathExcluded(file.path)
-				) return;
+				)
+					return;
 				if (this.pendingNewFiles.has(file.path)) return;
 
 				const pending = this.pendingEditorUpdates.get(file);
 				if (pending !== undefined) window.clearTimeout(pending);
 				this.pendingEditorUpdates.set(
 					file,
-					window.setTimeout(() => {
-						this.pendingEditorUpdates.delete(file);
-						if (this.settings.autoUpdate) {
-							void this.updateModifiedTime(file, true, true).catch(
-								console.error,
-							);
-						}
-					}, Math.max(0, this.settings.delayModifiedUpdate)),
+					window.setTimeout(
+						() => {
+							this.pendingEditorUpdates.delete(file);
+							if (this.settings.autoUpdate) {
+								void this.updateModifiedTime(
+									file,
+									true,
+									true,
+								).catch(console.error);
+							}
+						},
+						Math.max(0, this.settings.delayModifiedUpdate),
+					),
 				);
 			}),
 		);
@@ -191,20 +231,16 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		const currentTime = moment().format(this.settings.dateFormat);
 
 		try {
-			await processFrontMatter(
-				this.app,
-				file,
-				(frontmatter) => {
-					if (!frontmatter[this.settings.createdPropertyName]) {
-						frontmatter[this.settings.createdPropertyName] =
-							currentTime;
-					}
-					if (!frontmatter[this.settings.modifiedPropertyName]) {
-						frontmatter[this.settings.modifiedPropertyName] =
-							currentTime;
-					}
-				},
-			);
+			await processFrontMatter(this.app, file, (frontmatter) => {
+				if (!frontmatter[this.settings.createdPropertyName]) {
+					frontmatter[this.settings.createdPropertyName] =
+						currentTime;
+				}
+				if (!frontmatter[this.settings.modifiedPropertyName]) {
+					frontmatter[this.settings.modifiedPropertyName] =
+						currentTime;
+				}
+			});
 			if (debug) {
 				console.log(`Timestamps added to new file ${file.path}`);
 			}
@@ -224,7 +260,10 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			if (view instanceof MarkdownView) {
 				this.editorContents.set(
 					view.editor,
-					getComparableContent(view.editor.getValue(), this.settings.modifiedPropertyName),
+					getComparableContent(
+						view.editor.getValue(),
+						this.settings.modifiedPropertyName,
+					),
 				);
 			}
 		}
@@ -237,7 +276,11 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		if (currentFile) this.cancelPendingModifiedUpdate(currentFile.path);
 
 		const checksum = currentFile
-			? getFileContent(this.app, currentFile, this.settings.modifiedPropertyName).catch((error) => {
+			? getFileContent(
+					this.app,
+					currentFile,
+					this.settings.modifiedPropertyName,
+				).catch((error) => {
 					console.error(
 						`Error reading baseline for ${currentFile.path}:`,
 						error,
@@ -357,6 +400,7 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		immediate = false,
 		editorUpdate = false,
 	) {
+		const runCustomCommand = !this.runningCustomCommand;
 		const { debug } = this.settings;
 		if (!file?.path) return;
 		if (this.isPathExcluded(file.path)) return;
@@ -392,25 +436,24 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			}
 
 			const content = await getFileContent(
-				this.app, file, this.settings.modifiedPropertyName,
+				this.app,
+				file,
+				this.settings.modifiedPropertyName,
 			);
 			// The editor timer may outlive a successful update on switching notes.
 			if (
 				(!immediate || editorUpdate) &&
 				this.lastUpdatedContents.get(file) === content
-			) return;
+			)
+				return;
 
 			const currentTime = moment().format(this.settings.dateFormat);
 
 			try {
-				await processFrontMatter(
-					this.app,
-					file,
-					(frontmatter) => {
-						frontmatter[this.settings.modifiedPropertyName] =
-							currentTime;
-					},
-				);
+				await processFrontMatter(this.app, file, (frontmatter) => {
+					frontmatter[this.settings.modifiedPropertyName] =
+						currentTime;
+				});
 				this.lastUpdatedContents.set(file, content);
 				if (this.lastActiveFile?.path === file.path) {
 					this.lastChecksum = content;
@@ -420,10 +463,8 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 					console.log(`File frontmatter updated for ${file.path}`);
 				}
 
-				if (this.settings.customCommand) {
-					this.app.commands.executeCommandById(
-						this.settings.customCommand,
-					);
+				if (runCustomCommand) {
+					await this.executeAfterUpdateCommand();
 				}
 			} catch (error) {
 				console.error(
@@ -468,6 +509,9 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 	async loadSettings() {
 		const loaded = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		if (this.settings.customCommand === this.updateModifiedTimeCommandId) {
+			this.settings.customCommand = "";
+		}
 		// Migrate: older installs used delayAddingTimestamps for modified updates too
 		if (loaded?.delayModifiedUpdate === undefined) {
 			this.settings.delayModifiedUpdate =

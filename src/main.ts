@@ -1,6 +1,6 @@
 import { Editor, Plugin, TFile, moment, MarkdownView, TAbstractFile } from "obsidian";
 import { DEFAULT_SETTINGS, FrontMatterTimestampsSettings } from "./settings";
-import { getComparableContent, getFileContent } from "./utils";
+import { getComparableContent, getFileContent, processFrontMatter } from "./utils";
 import { FrontMatterTimestampsSettingTab } from "./settings-tab";
 
 export default class FrontMatterTimestampsPlugin extends Plugin {
@@ -190,7 +190,8 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 		const currentTime = moment().format(this.settings.dateFormat);
 
 		try {
-			await this.app.fileManager.processFrontMatter(
+			await processFrontMatter(
+				this.app,
 				file,
 				(frontmatter) => {
 					if (!frontmatter[this.settings.createdPropertyName]) {
@@ -401,7 +402,8 @@ export default class FrontMatterTimestampsPlugin extends Plugin {
 			const currentTime = moment().format(this.settings.dateFormat);
 
 			try {
-				await this.app.fileManager.processFrontMatter(
+				await processFrontMatter(
+					this.app,
 					file,
 					(frontmatter) => {
 						frontmatter[this.settings.modifiedPropertyName] =

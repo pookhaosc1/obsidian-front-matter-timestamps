@@ -2,7 +2,7 @@
 	"id": "front-matter-timestamps",
 	"name": "Front Matter Timestamps",
 	"version": "1.5.6",
-	"minAppVersion": "0.15.0",
+	"minAppVersion": "1.5.7",
 	"description": "Automatically manages and updates 'created' and 'modified' timestamps in the frontmatter of your notes",
 	"author": "Pookhao Chinpongsuwan",
 	"authorUrl": "https://github.com/pookhaosc1",

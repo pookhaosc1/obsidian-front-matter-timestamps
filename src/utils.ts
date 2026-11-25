@@ -47,16 +47,21 @@ export async function processFrontMatter(
 			}
 			update(frontmatter);
 			const replacement = `---\n${stringifyYaml(frontmatter)}---\n`;
-			const end = info.exists ? info.contentStart : 0;
-			if (content.slice(0, end) === replacement) return;
+			const current = content.slice(
+				0,
+				info.exists ? info.contentStart : 0,
+			);
+			if (current === replacement) return;
+
+			const { from, to, insert } = getMinimalChange(current, replacement);
 
 			// Keep metadata out of undo history
 			timestampEditors.add(editor);
 			try {
 				editor.replaceRange(
-					replacement,
-					{ line: 0, ch: 0 },
-					editor.offsetToPos(end),
+					insert,
+					editor.offsetToPos(from),
+					editor.offsetToPos(to),
 				);
 			} finally {
 				timestampEditors.delete(editor);
@@ -66,6 +71,32 @@ export async function processFrontMatter(
 		}
 	}
 	await app.fileManager.processFrontMatter(file, update);
+}
+
+export function getMinimalChange(
+	current: string,
+	replacement: string,
+): { from: number; to: number; insert: string } {
+	let start = 0;
+	const maxStart = Math.min(current.length, replacement.length);
+	while (start < maxStart && current[start] === replacement[start]) start++;
+
+	let currentEnd = current.length;
+	let replacementEnd = replacement.length;
+	while (
+		currentEnd > start &&
+		replacementEnd > start &&
+		current[currentEnd - 1] === replacement[replacementEnd - 1]
+	) {
+		currentEnd--;
+		replacementEnd--;
+	}
+
+	return {
+		from: start,
+		to: currentEnd,
+		insert: replacement.slice(start, replacementEnd),
+	};
 }
 
 function normalizeForComparison(content: string): string {

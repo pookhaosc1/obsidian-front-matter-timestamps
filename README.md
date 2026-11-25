@@ -1,7 +1,14 @@
 # Front Matter Timestamps for Obsidian
 
-This plugin adds the `created` and `modified` timestamps in the front matter of your notes. The `modified` time is kept updated automatically. This helps keep track of when each file was last modified without relying on file attributes, which are prone to accidental changes (especially when syncing).
+Keep a record of when you created and last edited a note. The plugin stores both dates as properties in the note’s YAML front matter. This method is much more reliable than relying on system file attributes, which are prone to accidental changes, especially when syncing between devices.
 
+```yaml
 ---
+created: 2026-03-02T09:15:00+01:00
+modified: 2026-03-05T14:30:00+01:00
+---
+```
 
-I built this plugin for my own use a few years ago, and it's been lovely to see so many others find it useful too. I can't always find time to get to every issue, so PRs – bug fixes and new features alike – are always very welcome. Thank you to everyone who's contributed and shared feedback. 💛
+In settings, you can rename the properties, change the date format or delays, and exclude folders.
+
+Pull requests and feedback are welcome.
